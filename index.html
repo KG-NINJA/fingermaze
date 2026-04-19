@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>Finger Maze Rush</title>
+  <style>
+    :root {
+      --bg-a: #0f172a;
+      --bg-b: #1e293b;
+      --panel: rgba(15, 23, 42, 0.72);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #f59e0b;
+      --accent-2: #22c55e;
+      --danger: #ef4444;
+      --wall: #e2e8f0;
+      --path: #0b1220;
+      --trail: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", "Hiragino Sans", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top, rgba(245, 158, 11, 0.16), transparent 28%),
+        linear-gradient(180deg, var(--bg-b), var(--bg-a));
+      touch-action: none;
+      overflow: hidden;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+      padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+    }
+
+    .topbar, .bottombar {
+      display: grid;
+      gap: 10px;
+    }
+
+    .stats, .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .card, button {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--panel);
+      border-radius: 16px;
+      backdrop-filter: blur(12px);
+      color: var(--text);
+    }
+
+    .card {
+      padding: 12px;
+      text-align: center;
+    }
+
+    .label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .value {
+      font-size: clamp(20px, 5vw, 28px);
+      font-weight: 700;
+    }
+
+    .title {
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .title p {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .badge {
+      min-width: 72px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      text-align: center;
+      font-weight: 700;
+      background: rgba(34, 197, 94, 0.16);
+      color: #bbf7d0;
+    }
+
+    .board-wrap {
+      position: relative;
+      border-radius: 24px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(15, 23, 42, 0.38);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(2, 6, 23, 0.52);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 180ms ease;
+    }
+
+    .overlay.show {
+      opacity: 1;
+    }
+
+    .message {
+      width: min(100%, 320px);
+      padding: 20px;
+      border-radius: 20px;
+      background: rgba(15, 23, 42, 0.88);
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .message h2 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+
+    .message p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      padding: 14px 10px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, #f59e0b, #ea580c);
+      color: #fff7ed;
+    }
+
+    button.secondary {
+      background: rgba(56, 189, 248, 0.18);
+      color: #e0f2fe;
+    }
+
+    button.ghost {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    @media (min-width: 768px) {
+      .app {
+        width: min(100vw, 540px);
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="title card">
+        <div>
+          <h1>Finger Maze Rush</h1>
+          <p>指を離さずにゴールまでなぞる</p>
+        </div>
+        <div id="statusBadge" class="badge">READY</div>
+      </div>
+      <div class="stats">
+        <div class="card">
+          <span class="label">Time</span>
+          <span id="timeValue" class="value">20.0</span>
+        </div>
+        <div class="card">
+          <span class="label">Level</span>
+          <span id="levelValue" class="value">1</span>
+        </div>
+        <div class="card">
+          <span class="label">Best</span>
+          <span id="bestValue" class="value">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <canvas id="mazeCanvas"></canvas>
+      <div id="overlay" class="overlay show">
+        <div class="message">
+          <h2 id="overlayTitle">START</h2>
+          <p id="overlayText">左上の緑の丸からスタート。通路を外れずに右下のゴールへ。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottombar controls">
+      <button id="startBtn" class="primary">開始</button>
+      <button id="retryBtn" class="secondary">やり直し</button>
+      <button id="nextBtn" class="ghost">次の迷路</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("mazeCanvas");
+    const ctx = canvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayText = document.getElementById("overlayText");
+    const statusBadge = document.getElementById("statusBadge");
+    const timeValue = document.getElementById("timeValue");
+    const levelValue = document.getElementById("levelValue");
+    const bestValue = document.getElementById("bestValue");
+
+    const startBtn = document.getElementById("startBtn");
+    const retryBtn = document.getElementById("retryBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    const STORAGE_KEY = "finger-maze-rush-best";
+    const state = {
+      level: 1,
+      best: Number(localStorage.getItem(STORAGE_KEY) || 0),
+      timeLimit: 20,
+      timeLeft: 20,
+      playing: false,
+      finished: false,
+      tracing: false,
+      trail: [],
+      rafId: 0,
+      startedAt: 0,
+      pointerId: null,
+      maze: null,
+      cellSize: 0,
+      offsetX: 0,
+      offsetY: 0
+    };
+
+    bestValue.textContent = state.best;
+
+    function showOverlay(title, text) {
+      overlayTitle.textContent = title;
+      overlayText.textContent = text;
+      overlay.classList.add("show");
+    }
+
+    function hideOverlay() {
+      overlay.classList.remove("show");
+    }
+
+    function setStatus(text, tone) {
+      statusBadge.textContent = text;
+      if (tone === "danger") statusBadge.style.background = "rgba(239,68,68,0.18)", statusBadge.style.color = "#fecaca";
+      else if (tone === "warn") statusBadge.style.background = "rgba(245,158,11,0.18)", statusBadge.style.color = "#fde68a";
+      else statusBadge.style.background = "rgba(34,197,94,0.16)", statusBadge.style.color = "#bbf7d0";
+    }
+
+    function resizeCanvas() {
+      const wrap = canvas.parentElement;
+      const size = Math.min(wrap.clientWidth, wrap.clientHeight || window.innerHeight * 0.58);
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = size * ratio;
+      canvas.height = size * ratio;
+      canvas.style.height = size + "px";
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      if (state.maze) draw();
+    }
+
+    function createMaze(cols, rows) {
+      const grid = Array.from({ length: rows }, (_, y) =>
+        Array.from({ length: cols }, (_, x) => ({
+          x, y,
+          walls: { top: true, right: true, bottom: true, left: true },
+          visited: false
+        }))
+      );
+
+      const stack = [];
+      const start = grid[0][0];
+      start.visited = true;
+      stack.push(start);
+
+      while (stack.length) {
+        const current = stack[stack.length - 1];
+        const neighbors = [];
+        const dirs = [
+          [0, -1, "top", "bottom"],
+          [1, 0, "right", "left"],
+          [0, 1, "bottom", "top"],
+          [-1, 0, "left", "right"]
+        ];
+
+        for (const [dx, dy, wall, opposite] of dirs) {
+          const nx = current.x + dx;
+          const ny = current.y + dy;
+          if (nx >= 0 && nx < cols && ny >= 0 && ny < rows && !grid[ny][nx].visited) {
+            neighbors.push({ cell: grid[ny][nx], wall, opposite });
+          }
+        }
+
+        if (!neighbors.length) {
+          stack.pop();
+          continue;
+        }
+
+        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+        current.walls[next.wall] = false;
+        next.cell.walls[next.opposite] = false;
+        next.cell.visited = true;
+        stack.push(next.cell);
+      }
+
+      for (const row of grid) for (const cell of row) cell.visited = false;
+      return { cols, rows, grid, start: { x: 0, y: 0 }, goal: { x: cols - 1, y: rows - 1 } };
+    }
+
+    function setupLevel(level) {
+      state.level = level;
+      state.timeLimit = Math.max(8, 20 - (level - 1) * 1.5);
+      state.timeLeft = state.timeLimit;
+      levelValue.textContent = level;
+      timeValue.textContent = state.timeLeft.toFixed(1);
+
+      const size = Math.min(7 + level, 14);
+      state.maze = createMaze(size, size);
+      state.trail = [];
+      state.tracing = false;
+      state.playing = false;
+      state.finished = false;
+      state.pointerId = null;
+      setStatus("READY", "ok");
+      showOverlay("START", "左上の緑の丸から指を置いて、そのままゴールまで進んでください。");
+      draw();
+    }
+
+    function getMetrics() {
+      const size = parseFloat(canvas.style.width) || canvas.clientWidth;
+      const margin = 12;
+      const cell = (size - margin * 2) / state.maze.cols;
+      return { size, margin, cell };
+    }
+
+    function cellCenter(x, y) {
+      const { margin, cell } = getMetrics();
+      return {
+        x: margin + x * cell + cell / 2,
+        y: margin + y * cell + cell / 2
+      };
+    }
+
+    function draw() {
+      const { size, margin, cell } = getMetrics();
+      ctx.clearRect(0, 0, size, size);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--path");
+      ctx.fillRect(0, 0, size, size);
+
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--wall");
+      ctx.lineWidth = Math.max(4, cell * 0.12);
+      ctx.lineCap = "round";
+
+      for (const row of state.maze.grid) {
+        for (const c of row) {
+          const x = margin + c.x * cell;
+          const y = margin + c.y * cell;
+          if (c.walls.top) line(x, y, x + cell, y);
+          if (c.walls.right) line(x + cell, y, x + cell, y + cell);
+          if (c.walls.bottom) line(x, y + cell, x + cell, y + cell);
+          if (c.walls.left) line(x, y, x, y + cell);
+        }
+      }
+
+      drawMarkers(cell);
+      drawTrail(cell);
+    }
+
+    function line(x1, y1, x2, y2) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    function drawMarkers(cell) {
+      const start = cellCenter(state.maze.start.x, state.maze.start.y);
+      const goal = cellCenter(state.maze.goal.x, state.maze.goal.y);
+
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, cell * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(goal.x, goal.y, cell * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawTrail(cell) {
+      if (!state.trail.length) return;
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--trail");
+      ctx.lineWidth = Math.max(8, cell * 0.28);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(state.trail[0].x, state.trail[0].y);
+      for (let i = 1; i < state.trail.length; i++) ctx.lineTo(state.trail[i].x, state.trail[i].y);
+      ctx.stroke();
+    }
+
+    function getPoint(evt) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+      };
+    }
+
+    function pointToCell(point) {
+      const { margin, cell } = getMetrics();
+      const x = Math.floor((point.x - margin) / cell);
+      const y = Math.floor((point.y - margin) / cell);
+      if (x < 0 || y < 0 || x >= state.maze.cols || y >= state.maze.rows) return null;
+      return { x, y };
+    }
+
+    function isInStart(point) {
+      const start = cellCenter(state.maze.start.x, state.maze.start.y);
+      const { cell } = getMetrics();
+      return Math.hypot(point.x - start.x, point.y - start.y) < cell * 0.34;
+    }
+
+    function updateTimer() {
+      if (!state.playing) return;
+      const elapsed = (performance.now() - state.startedAt) / 1000;
+      state.timeLeft = Math.max(0, state.timeLimit - elapsed);
+      timeValue.textContent = state.timeLeft.toFixed(1);
+
+      if (state.timeLeft <= 5) setStatus("HURRY", "warn");
+      if (state.timeLeft <= 0) {
+        failRun("TIME UP", "時間切れです。やり直してもう一度なぞってください。");
+        return;
+      }
+
+      state.rafId = requestAnimationFrame(updateTimer);
+    }
+
+    function startRun() {
+      state.playing = true;
+      state.finished = false;
+      state.startedAt = performance.now();
+      hideOverlay();
+      setStatus("GO", "ok");
+      cancelAnimationFrame(state.rafId);
+      state.rafId = requestAnimationFrame(updateTimer);
+    }
+
+    function resetRun(keepLevel = true) {
+      cancelAnimationFrame(state.rafId);
+      setupLevel(keepLevel ? state.level : 1);
+    }
+
+    function failRun(title, text) {
+      state.playing = false;
+      state.finished = true;
+      state.tracing = false;
+      state.pointerId = null;
+      cancelAnimationFrame(state.rafId);
+      setStatus("MISS", "danger");
+      showOverlay(title, text);
+    }
+
+    function winRun() {
+      state.playing = false;
+      state.finished = true;
+      state.tracing = false;
+      state.pointerId = null;
+      cancelAnimationFrame(state.rafId);
+
+      if (state.level > state.best) {
+        state.best = state.level;
+        localStorage.setItem(STORAGE_KEY, String(state.best));
+        bestValue.textContent = state.best;
+      }
+
+      setStatus("CLEAR", "ok");
+      showOverlay("CLEAR", "ゴール到達。次の迷路で難易度が上がります。");
+    }
+
+    function canMove(prev, next) {
+      if (!prev || !next) return false;
+      const dx = next.x - prev.x;
+      const dy = next.y - prev.y;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) return false;
+      const cell = state.maze.grid[prev.y][prev.x];
+      if (dx === 1) return !cell.walls.right;
+      if (dx === -1) return !cell.walls.left;
+      if (dy === 1) return !cell.walls.bottom;
+      if (dy === -1) return !cell.walls.top;
+      return false;
+    }
+
+    function onPointerDown(evt) {
+      if (state.finished) return;
+      const point = getPoint(evt);
+      if (!isInStart(point)) return;
+
+      evt.preventDefault();
+      canvas.setPointerCapture(evt.pointerId);
+      state.pointerId = evt.pointerId;
+      state.tracing = true;
+      state.trail = [point];
+      state.currentCell = state.maze.start;
+      if (!state.playing) startRun();
+      draw();
+    }
+
+    function onPointerMove(evt) {
+      if (!state.tracing || evt.pointerId !== state.pointerId || !state.playing) return;
+      evt.preventDefault();
+      const point = getPoint(evt);
+      const nextCell = pointToCell(point);
+      if (!nextCell) {
+        failRun("OUT", "通路の外に出ました。スタートからやり直しです。");
+        return;
+      }
+
+      if (nextCell.x !== state.currentCell.x || nextCell.y !== state.currentCell.y) {
+        if (!canMove(state.currentCell, nextCell)) {
+          failRun("MISS", "壁に触れました。もう一度どうぞ。");
+          return;
+        }
+        state.currentCell = nextCell;
+        if (nextCell.x === state.maze.goal.x && nextCell.y === state.maze.goal.y) {
+          state.trail.push(point);
+          draw();
+          winRun();
+          return;
+        }
+      }
+
+      state.trail.push(point);
+      draw();
+    }
+
+    function onPointerUp(evt) {
+      if (evt.pointerId !== state.pointerId) return;
+      if (state.playing && state.tracing && !state.finished) {
+        failRun("RELEASE", "指を離しました。続けるにはスタートから。");
+      }
+    }
+
+    startBtn.addEventListener("click", () => resetRun(true));
+    retryBtn.addEventListener("click", () => resetRun(true));
+    nextBtn.addEventListener("click", () => {
+      const nextLevel = state.finished ? state.level + 1 : state.level + 1;
+      cancelAnimationFrame(state.rafId);
+      setupLevel(nextLevel);
+    });
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("resize", resizeCanvas);
+
+    resizeCanvas();
+    setupLevel(1);
+  </script>
+</body>
+</html>
