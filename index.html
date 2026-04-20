@@ -11,9 +11,6 @@
       --panel: rgba(15, 23, 42, 0.72);
       --text: #e2e8f0;
       --muted: #94a3b8;
-      --accent: #f59e0b;
-      --accent-2: #22c55e;
-      --danger: #ef4444;
       --wall: #e2e8f0;
       --path: #0b1220;
       --trail: #38bdf8;
@@ -163,6 +160,25 @@
       line-height: 1.5;
     }
 
+    .share-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 14px;
+      padding: 12px 16px;
+      border-radius: 999px;
+      color: #f8fafc;
+      text-decoration: none;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      pointer-events: auto;
+    }
+
+    .share-link.hidden {
+      display: none;
+    }
+
     button {
       appearance: none;
       border: 0;
@@ -225,6 +241,7 @@
         <div class="message">
           <h2 id="overlayTitle">START</h2>
           <p id="overlayText">左上の緑の丸からスタート。通路を外れずに右下のゴールへ。</p>
+          <a id="shareLink" class="share-link hidden" href="#" target="_blank" rel="noopener noreferrer">Xにポスト</a>
         </div>
       </div>
     </div>
@@ -242,6 +259,7 @@
     const overlay = document.getElementById("overlay");
     const overlayTitle = document.getElementById("overlayTitle");
     const overlayText = document.getElementById("overlayText");
+    const shareLink = document.getElementById("shareLink");
     const statusBadge = document.getElementById("statusBadge");
     const timeValue = document.getElementById("timeValue");
     const levelValue = document.getElementById("levelValue");
@@ -264,10 +282,10 @@
       rafId: 0,
       startedAt: 0,
       pointerId: null,
-      maze: null,
-      cellSize: 0,
-      offsetX: 0,
-      offsetY: 0
+      currentCell: null,
+      audioContext: null,
+      lastWarningAt: 0,
+      maze: null
     };
 
     bestValue.textContent = state.best;
@@ -280,13 +298,27 @@
 
     function hideOverlay() {
       overlay.classList.remove("show");
+      shareLink.classList.add("hidden");
+    }
+
+    function showShareLink() {
+      const text = `Finger Maze Rushで${state.level}面クリア。指だけで迷路突破した。`;
+      shareLink.href = "https://twitter.com/intent/tweet?text=" + encodeURIComponent(text);
+      shareLink.classList.remove("hidden");
     }
 
     function setStatus(text, tone) {
       statusBadge.textContent = text;
-      if (tone === "danger") statusBadge.style.background = "rgba(239,68,68,0.18)", statusBadge.style.color = "#fecaca";
-      else if (tone === "warn") statusBadge.style.background = "rgba(245,158,11,0.18)", statusBadge.style.color = "#fde68a";
-      else statusBadge.style.background = "rgba(34,197,94,0.16)", statusBadge.style.color = "#bbf7d0";
+      if (tone === "danger") {
+        statusBadge.style.background = "rgba(239,68,68,0.18)";
+        statusBadge.style.color = "#fecaca";
+      } else if (tone === "warn") {
+        statusBadge.style.background = "rgba(245,158,11,0.18)";
+        statusBadge.style.color = "#fde68a";
+      } else {
+        statusBadge.style.background = "rgba(34,197,94,0.16)";
+        statusBadge.style.color = "#bbf7d0";
+      }
     }
 
     function resizeCanvas() {
@@ -295,6 +327,7 @@
       const ratio = window.devicePixelRatio || 1;
       canvas.width = size * ratio;
       canvas.height = size * ratio;
+      canvas.style.width = size + "px";
       canvas.style.height = size + "px";
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       if (state.maze) draw();
@@ -362,8 +395,11 @@
       state.playing = false;
       state.finished = false;
       state.pointerId = null;
+      state.currentCell = null;
+      state.lastWarningAt = 0;
       setStatus("READY", "ok");
       showOverlay("START", "左上の緑の丸から指を置いて、そのままゴールまで進んでください。");
+      shareLink.classList.add("hidden");
       draw();
     }
 
@@ -463,6 +499,50 @@
       return Math.hypot(point.x - start.x, point.y - start.y) < cell * 0.34;
     }
 
+    function isNearWall(point, cellPos) {
+      const cellData = state.maze.grid[cellPos.y][cellPos.x];
+      const { margin, cell } = getMetrics();
+      const localX = point.x - (margin + cellPos.x * cell);
+      const localY = point.y - (margin + cellPos.y * cell);
+      const threshold = Math.max(6, cell * 0.16);
+
+      if (cellData.walls.top && localY < threshold) return true;
+      if (cellData.walls.right && cell - localX < threshold) return true;
+      if (cellData.walls.bottom && cell - localY < threshold) return true;
+      if (cellData.walls.left && localX < threshold) return true;
+      return false;
+    }
+
+    function initAudio() {
+      if (!state.audioContext) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) state.audioContext = new AudioContextClass();
+      }
+      if (state.audioContext && state.audioContext.state === "suspended") {
+        state.audioContext.resume();
+      }
+    }
+
+    function playWarningBeep() {
+      const now = performance.now();
+      if (!state.audioContext || now - state.lastWarningAt < 220) return;
+      state.lastWarningAt = now;
+
+      const audio = state.audioContext;
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(880, audio.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(660, audio.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.0001, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.03, audio.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.09);
+      osc.connect(gain);
+      gain.connect(audio.destination);
+      osc.start();
+      osc.stop(audio.currentTime + 0.1);
+    }
+
     function updateTimer() {
       if (!state.playing) return;
       const elapsed = (performance.now() - state.startedAt) / 1000;
@@ -482,6 +562,7 @@
       state.playing = true;
       state.finished = false;
       state.startedAt = performance.now();
+      state.lastWarningAt = 0;
       hideOverlay();
       setStatus("GO", "ok");
       cancelAnimationFrame(state.rafId);
@@ -498,6 +579,7 @@
       state.finished = true;
       state.tracing = false;
       state.pointerId = null;
+      state.currentCell = null;
       cancelAnimationFrame(state.rafId);
       setStatus("MISS", "danger");
       showOverlay(title, text);
@@ -508,6 +590,7 @@
       state.finished = true;
       state.tracing = false;
       state.pointerId = null;
+      state.currentCell = null;
       cancelAnimationFrame(state.rafId);
 
       if (state.level > state.best) {
@@ -518,6 +601,7 @@
 
       setStatus("CLEAR", "ok");
       showOverlay("CLEAR", "ゴール到達。次の迷路で難易度が上がります。");
+      if (state.level >= 3) showShareLink();
     }
 
     function canMove(prev, next) {
@@ -539,6 +623,7 @@
       if (!isInStart(point)) return;
 
       evt.preventDefault();
+      initAudio();
       canvas.setPointerCapture(evt.pointerId);
       state.pointerId = evt.pointerId;
       state.tracing = true;
@@ -557,6 +642,8 @@
         failRun("OUT", "通路の外に出ました。スタートからやり直しです。");
         return;
       }
+
+      if (isNearWall(point, nextCell)) playWarningBeep();
 
       if (nextCell.x !== state.currentCell.x || nextCell.y !== state.currentCell.y) {
         if (!canMove(state.currentCell, nextCell)) {
@@ -586,9 +673,8 @@
     startBtn.addEventListener("click", () => resetRun(true));
     retryBtn.addEventListener("click", () => resetRun(true));
     nextBtn.addEventListener("click", () => {
-      const nextLevel = state.finished ? state.level + 1 : state.level + 1;
       cancelAnimationFrame(state.rafId);
-      setupLevel(nextLevel);
+      setupLevel(state.level + 1);
     });
 
     canvas.addEventListener("pointerdown", onPointerDown);
